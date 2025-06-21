@@ -1,19 +1,9 @@
 # ghglim
 
-A CLI that pulls Github project workflow information of a repository
-![Logo](./ghglim.png)
+A CLI application that pulls Github project workflow information of a repository
 
 ## Usage
-
-* Set the TOKEN environment variable:
-
-Linux
-```bash
-    export TOKEN=your_token_here
-```
-Windows
-```powershell
-    $env:TOKEN="your_token_here"
-```
-
-ghglim <owner> <repo>
+* Clone the repo
+* Cargo build --release
+  
+`ghglim <owner> <repo>`
