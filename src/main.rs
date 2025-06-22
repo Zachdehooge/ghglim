@@ -44,6 +44,23 @@ struct Args {
     repo: String,
 }
 
+fn parse_github_timestamp(
+    timestamp: &str,
+) -> Result<DateTime<chrono::FixedOffset>, chrono::ParseError> {
+    // Try parsing with the exact format that GitHub uses: 2024-07-10T14:57:08.000Z
+    DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.3fZ")
+        .or_else(|_| DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%SZ"))
+        .or_else(|_| {
+            // If Z format fails, try with timezone offset
+            let normalized = timestamp.replace("Z", "+00:00");
+            DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%.3f%z")
+        })
+        .or_else(|_| {
+            let normalized = timestamp.replace("Z", "+00:00");
+            DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%z")
+        })
+}
+
 fn get_last_run_date(
     client: &reqwest::blocking::Client,
     owner: &str,
@@ -102,11 +119,17 @@ fn display_workflows(
         println!("{} State: {}", state_emoji, workflow.state);
 
         // Parse and format created date
-        match DateTime::parse_from_str(&workflow.created_at, "%Y-%m-%dT%H:%M:%S%.3f%z") {
+        match parse_github_timestamp(&workflow.created_at) {
             Ok(created_dt) => {
-                println!("🎂 Created: {}", created_dt.format("%B %d, %Y at %I:%M %p"))
+                println!("🎉 Created: {}", created_dt.format("%m-%d-%Y at %H:%M UTC"))
             }
-            Err(_) => println!("🎂 Created: {}", workflow.created_at),
+            Err(_) => {
+                println!("🎉 Created: {} (raw format)", workflow.created_at);
+                eprintln!(
+                    "⚠️  Could not parse created_at date format: {}",
+                    workflow.created_at
+                );
+            }
         }
 
         // Check if active
@@ -116,39 +139,33 @@ fn display_workflows(
             if is_active { "Yes ✅" } else { "No ❌" }
         );
 
-        // Parse and format last updated date
-        match DateTime::parse_from_str(&workflow.updated_at, "%Y-%m-%dT%H:%M:%S%.3f%z") {
+        // Parse and format updated date
+        match parse_github_timestamp(&workflow.updated_at) {
             Ok(updated_dt) => println!(
                 "📅 Last Updated: {}",
-                updated_dt.format("%B %d, %Y at %I:%M %p")
+                updated_dt.format("%m-%d-%Y at %H:%M UTC")
             ),
-            Err(_) => println!("📅 Last Updated: {}", workflow.updated_at),
+            Err(_) => {
+                println!("📅 Last Updated: {} (raw format)", workflow.updated_at);
+                eprintln!(
+                    "⚠️  Could not parse updated_at date format: {}",
+                    workflow.updated_at
+                );
+            }
         }
 
-        // Get and display last run date
         print!("🏃 Last Run: ");
         match get_last_run_date(client, owner, repo, workflow.id) {
-            Ok(Some(last_run_date)) => {
-                // Handle the 'Z' suffix by replacing it with '+00:00' for proper timezone parsing
-                let normalized_date = last_run_date.replace("Z", "+00:00");
-
-                let parsed_date = DateTime::parse_from_str(&normalized_date, "%Y-%m-%dT%H:%M:%S%z")
-                    .or_else(|_| {
-                        DateTime::parse_from_str(&normalized_date, "%Y-%m-%dT%H:%M:%S%.3f%z")
-                    })
-                    .or_else(|_| DateTime::parse_from_str(&last_run_date, "%Y-%m-%dT%H:%M:%SZ"))
-                    .or_else(|_| {
-                        DateTime::parse_from_str(&last_run_date, "%Y-%m-%dT%H:%M:%S%.3fZ")
-                    });
-
-                match parsed_date {
-                    Ok(run_dt) => println!("{}", run_dt.format("%B %d, %Y at %I:%M %p")),
-                    Err(_) => {
-                        println!("{} (raw format)", last_run_date);
-                        eprintln!("⚠️  Could not parse date format: {}", last_run_date);
-                    }
+            Ok(Some(last_run_date)) => match parse_github_timestamp(&last_run_date) {
+                Ok(run_dt) => println!("{}", run_dt.format("%m-%d-%Y at %H:%M UTC")),
+                Err(_) => {
+                    println!("{} (raw format)", last_run_date);
+                    eprintln!(
+                        "⚠️  Could not parse last run date format: {}",
+                        last_run_date
+                    );
                 }
-            }
+            },
             Ok(None) => println!("Never run ⏸️"),
             Err(e) => println!("Error fetching run data: {} ❌", e),
         }
@@ -179,11 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if response.status().is_success() {
         let json: Value = response.json()?;
 
-        // Display formatted workflows with last run information
         display_workflows(&json, &client, &args.owner, &args.repo)?;
-
-        // Uncomment the line below if you also want to see the raw JSON
-        // println!("\n🔍 Raw JSON Response:\n{}", serde_json::to_string_pretty(&json)?);
     } else {
         println!("❌ Request failed with status: {}", response.status());
     }
