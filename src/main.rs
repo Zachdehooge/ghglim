@@ -135,11 +135,11 @@ fn display_workflows(
         }
 
         // Check if active
-        let is_active = workflow.state == "active";
-        println!(
-            "🔄 Is Active: {}",
-            if is_active { "Yes ✅" } else { "No ❌" }
-        );
+        // let is_active = workflow.state == "active";
+        // println!(
+        //     "🔄 Is Active: {}",
+        //     if is_active { "Yes ✅" } else { "No ❌" }
+        // );
 
         // Parse and format updated date in local time
         match parse_github_timestamp_to_local(&workflow.updated_at) {
