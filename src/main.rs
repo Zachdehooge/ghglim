@@ -1,4 +1,4 @@
-use chrono::DateTime;
+use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -44,11 +44,9 @@ struct Args {
     repo: String,
 }
 
-fn parse_github_timestamp(
-    timestamp: &str,
-) -> Result<DateTime<chrono::FixedOffset>, chrono::ParseError> {
-    // Try parsing with the exact format that GitHub uses: 2024-07-10T14:57:08.000Z
-    DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.3fZ")
+fn parse_github_timestamp_to_local(timestamp: &str) -> Result<DateTime<Local>, chrono::ParseError> {
+    // First parse as UTC, then convert to local
+    let utc_dt = DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%.3fZ")
         .or_else(|_| DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%SZ"))
         .or_else(|_| {
             // If Z format fails, try with timezone offset
@@ -58,7 +56,11 @@ fn parse_github_timestamp(
         .or_else(|_| {
             let normalized = timestamp.replace("Z", "+00:00");
             DateTime::parse_from_str(&normalized, "%Y-%m-%dT%H:%M:%S%z")
-        })
+        })?;
+
+    // Convert to UTC first, then to local
+    let utc_datetime = Utc.from_utc_datetime(&utc_dt.naive_utc());
+    Ok(utc_datetime.with_timezone(&Local))
 }
 
 fn get_last_run_date(
@@ -118,10 +120,10 @@ fn display_workflows(
         };
         println!("{} State: {}", state_emoji, workflow.state);
 
-        // Parse and format created date
-        match parse_github_timestamp(&workflow.created_at) {
+        // Parse and format created date in local time
+        match parse_github_timestamp_to_local(&workflow.created_at) {
             Ok(created_dt) => {
-                println!("🎉 Created: {}", created_dt.format("%m-%d-%Y at %H:%M UTC"))
+                println!("🎉 Created: {}", created_dt.format("%m-%d-%Y at %H:%M"))
             }
             Err(_) => {
                 println!("🎉 Created: {} (raw format)", workflow.created_at);
@@ -139,11 +141,11 @@ fn display_workflows(
             if is_active { "Yes ✅" } else { "No ❌" }
         );
 
-        // Parse and format updated date
-        match parse_github_timestamp(&workflow.updated_at) {
+        // Parse and format updated date in local time
+        match parse_github_timestamp_to_local(&workflow.updated_at) {
             Ok(updated_dt) => println!(
                 "📅 Last Updated: {}",
-                updated_dt.format("%m-%d-%Y at %H:%M UTC")
+                updated_dt.format("%m-%d-%Y at %H:%M")
             ),
             Err(_) => {
                 println!("📅 Last Updated: {} (raw format)", workflow.updated_at);
@@ -156,8 +158,8 @@ fn display_workflows(
 
         print!("🏃 Last Run: ");
         match get_last_run_date(client, owner, repo, workflow.id) {
-            Ok(Some(last_run_date)) => match parse_github_timestamp(&last_run_date) {
-                Ok(run_dt) => println!("{}", run_dt.format("%m-%d-%Y at %H:%M UTC")),
+            Ok(Some(last_run_date)) => match parse_github_timestamp_to_local(&last_run_date) {
+                Ok(run_dt) => println!("{}", run_dt.format("%m-%d-%Y at %H:%M")),
                 Err(_) => {
                     println!("{} (raw format)", last_run_date);
                     eprintln!(
